@@ -31,6 +31,12 @@ cd scripts
 ./run_GLS_all_models.sh
 ```
 
+## Code Contributors:
+* Adam Karvonen
+* Daniel Reuter
+* Roy Rinberg
+
+
 ## Citation
 
 [Add citation information here]
