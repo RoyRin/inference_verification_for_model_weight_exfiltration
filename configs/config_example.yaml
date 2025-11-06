@@ -1,0 +1,40 @@
+# Example configuration file for generate.py and verify.py
+# This file contains model parameters, generation settings, and verification/classification settings
+
+model:
+  # Model identifier
+  model_name: "meta-llama/Llama-3.1-8B-Instruct"
+
+  # Sampling parameters (must be consistent between generation and verification)
+  temperature: 1.0
+  top_k: 50
+  top_p: 0.95
+  seed: 42
+
+generation_params:
+  # Generation settings (for generate.py)
+  n_prompts: 100       # Number of prompts to generate
+  max_tokens: 100      # Maximum tokens to generate per prompt
+
+  # Dataset settings
+  dataset_name: "lmsys/lmsys-chat-1m"  # Dataset for prompts
+  max_ctx_len: 512                     # Maximum context length for prompts
+
+  # vLLM settings
+  gpu_memory_utilization: 0.7  # GPU memory utilization (0.0-1.0)
+
+  # Output settings
+  save_dir: "generated_outputs"  # Directory to save generated outputs
+
+verification_params:
+  # Verification settings (for verify.py)
+  gumbel_sigma: 1.0  # Gaussian noise scale for GLS verification
+  cgs_sigma: 0.01    # Gaussian std for CGS (currently unused)
+
+  # Classification settings
+  classify: true              # Whether to run classification after verification
+  gls_threshold: -5.0         # GLS threshold: scores > this are "safe"
+  logit_rank_threshold: 10    # Rank threshold: ranks > this (with low GLS) are "dangerous"
+
+  # Output settings
+  save_dir: "verification_results"  # Directory to save results

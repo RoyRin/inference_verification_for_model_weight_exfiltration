@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 import gc
 import numpy as np
 from datetime import datetime
+from enum import Enum
+import yaml
 
 # Import GLS and CGS scoring functions from scoring_functions module
 from inference_verification.scoring_functions import (
@@ -37,9 +39,16 @@ from inference_verification.scoring_functions import (
 EPSILON = 1e-12
 
 
+class TokenClassification(Enum):
+    """Token classification categories."""
+    SAFE = "safe"
+    SUSPICIOUS = "suspicious"
+    DANGEROUS = "dangerous"
+
+
 @dataclass
 class VerificationConfig:
-    """Configuration for token verification."""
+    """Configuration for token verification and classification."""
 
     # Model settings
     model_name: str = "meta-llama/Llama-3.1-8B-Instruct"
@@ -51,14 +60,32 @@ class VerificationConfig:
     seed: int = 42
 
     # Verification settings
-    gumbel_sigmas: list[float] = field(
-        default_factory=lambda: [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
-    )  # Gaussian noise scales for GLS
+    gumbel_sigma: float = 1.0  # Gaussian noise scale for GLS
     cgs_sigma: float = 0.01  # Gaussian std for CGS
-    support_size: int = 1000  # Number of top tokens to score
+
+    # Classification settings
+    classify: bool = False  # Whether to run classification
+    gls_threshold: float = -5.0  # GLS threshold for classification
+    logit_rank_threshold: int = 10  # Logit rank threshold for classification
 
     # Save settings
     save_dir: str = "verification_results"
+
+    @classmethod
+    def from_yaml(cls, yaml_path: str) -> "VerificationConfig":
+        """Load configuration from YAML file."""
+        with open(yaml_path, 'r') as f:
+            config_dict = yaml.safe_load(f)
+
+        # Extract model and verification_params sections
+        model_config = config_dict.get("model", {})
+        verification_config = config_dict.get("verification_params", {})
+
+        # Merge both sections
+        merged_config = {**model_config, **verification_config}
+
+        # Create config object
+        return cls(**merged_config)
 
 
 def apply_top_k_only(logits: torch.Tensor, k: torch.Tensor) -> torch.Tensor:
@@ -160,13 +187,11 @@ def _as_list(x):
 
 def verify_outputs(cfg: VerificationConfig, outputs: list[RequestOutput]) -> list[dict]:
     """
-    Verify generated outputs and compute GLS/CGS scores.
+    Verify generated outputs and compute GLS scores.
 
     Returns list of dictionaries, one per token:
-    - top_k_gumbel_scores: dict[sigma -> array] - GLS scores for support tokens
-    - sampled_gumbel_scores: dict[sigma -> float] - GLS score for sampled token
-    - sampled_support_idx: int - rank in support set
-    - logit_rank: int - rank in raw logits
+    - sampled_gumbel_scores: float - GLS score for sampled token
+    - logit_rank: int - rank in raw logits (0 = highest)
     """
     print(f"Loading verification model: {cfg.model_name}")
     model = AutoModelForCausalLM.from_pretrained(
@@ -230,56 +255,28 @@ def verify_outputs(cfg: VerificationConfig, outputs: list[RequestOutput]) -> lis
             cdf_V = probs_V.cumsum(dim=-1)
             cdf_V[-1] = 1.0
 
-            # Select support tokens
-            unfiltered_probs_V = unfiltered_probs_LV[pos]
-            support_indices = unfiltered_probs_V.topk(k=cfg.support_size).indices
-
-            matches = torch.where(support_indices == sampled_token)[0]
-            sampled_support_idx = matches[0].item() if len(matches) > 0 else -1
-
             top_k_tensor = torch.tensor([cfg.top_k], device=device) if cfg.top_k is not None else None
             top_p_tensor = torch.tensor([cfg.top_p], device=device)
 
-            # Compute GLS scores
-            pairwise_gumbel_scores = {}
-            support_gumbel_scores = {}
-
-            for sigma in cfg.gumbel_sigmas:
-                claimed_token_score = compute_gumbel_likelihood_score(
-                    logits_V=logits_V,
-                    exponential_noise_V=noise_V,
-                    temperature=cfg.temperature,
-                    top_k=top_k_tensor,
-                    top_p=top_p_tensor,
-                    gold_idx=torch.tensor(sampled_token, device=device),
-                    noise_sigma=sigma,
-                    apply_top_k_top_p_fn=apply_top_k_top_p,
-                    epsilon=EPSILON,
-                )
-
-                support_scores = compute_gumbel_likelihood_score_batch(
-                    logits_V=logits_V,
-                    exponential_noise_V=noise_V,
-                    temperature=cfg.temperature,
-                    top_k=top_k_tensor,
-                    top_p=top_p_tensor,
-                    gold_idx_list=support_indices,
-                    noise_sigma=sigma,
-                    apply_top_k_top_p_fn=apply_top_k_top_p,
-                    epsilon=EPSILON,
-                )
-
-                pairwise_gumbel_scores[sigma] = claimed_token_score
-                support_gumbel_scores[sigma] = support_scores.cpu().numpy()
+            # Compute GLS score for sampled token
+            claimed_token_score = compute_gumbel_likelihood_score(
+                logits_V=logits_V,
+                exponential_noise_V=noise_V,
+                temperature=cfg.temperature,
+                top_k=top_k_tensor,
+                top_p=top_p_tensor,
+                gold_idx=torch.tensor(sampled_token, device=device),
+                noise_sigma=cfg.gumbel_sigma,
+                apply_top_k_top_p_fn=apply_top_k_top_p,
+                epsilon=EPSILON,
+            )
 
             # CGS (deterministic from seed + past tokens)
             seed = get_seed(cfg.seed, past_tokens)
             u = draw_u(seed, cgs_gen)
 
             result_dict = {
-                "top_k_gumbel_scores": support_gumbel_scores,
-                "sampled_gumbel_scores": pairwise_gumbel_scores,
-                "sampled_support_idx": sampled_support_idx,
+                "sampled_gumbel_scores": claimed_token_score,
                 "logit_rank": logit_rank,
             }
 
@@ -306,43 +303,119 @@ def save_verification_results(results: list[dict], save_dir: str) -> str:
     return str(output_file)
 
 
+def classify_tokens(
+    verification_results: list[dict],
+    gls_threshold: float,
+    logit_rank_threshold: int,
+) -> dict:
+    """
+    Classify tokens based on GLS scores and logit ranks.
+
+    Classification logic:
+    - Safe: GLS score > gls_threshold
+    - Dangerous: GLS score <= gls_threshold AND logit_rank > logit_rank_threshold
+    - Suspicious: GLS score <= gls_threshold AND logit_rank <= logit_rank_threshold
+
+    Args:
+        verification_results: List of dicts from verify_outputs, each containing:
+            - sampled_gumbel_scores: float - GLS score for sampled token
+            - logit_rank: int - rank in raw logits (0 = highest)
+        gls_threshold: GLS threshold for classification
+        logit_rank_threshold: Logit rank threshold for classification
+
+    Returns:
+        Dictionary containing:
+            - num_safe: int - number of safe tokens
+            - num_suspicious: int - number of suspicious tokens
+            - num_dangerous: int - number of dangerous tokens
+            - classifications: list[TokenClassification] - classification for each token
+    """
+    num_safe = 0
+    num_suspicious = 0
+    num_dangerous = 0
+    classifications = []
+
+    for result in verification_results:
+        gls_score = result["sampled_gumbel_scores"]
+        logit_rank = result["logit_rank"]
+
+        # Classification logic
+        if gls_score > gls_threshold:
+            classification = TokenClassification.SAFE
+            num_safe += 1
+        elif logit_rank > logit_rank_threshold:
+            classification = TokenClassification.DANGEROUS
+            num_dangerous += 1
+        else:
+            classification = TokenClassification.SUSPICIOUS
+            num_suspicious += 1
+
+        classifications.append(classification)
+
+    return {
+        "num_safe": num_safe,
+        "num_suspicious": num_suspicious,
+        "num_dangerous": num_dangerous,
+        "classifications": classifications,
+    }
+
+
 def main():
     """Main execution."""
     import argparse
 
     parser = argparse.ArgumentParser(description="Verify generated tokens using GLS/CGS")
     parser.add_argument("--input", type=str, required=True, help="Path to generated_outputs.pkl")
+    parser.add_argument("--config", type=str, default=None, help="Path to YAML config file")
+
+    # Optional overrides (only used if --config is not provided)
     parser.add_argument("--model", type=str, default=None, help="Model name (must match generation)")
     parser.add_argument("--temperature", type=float, default=None, help="Temperature (must match generation)")
     parser.add_argument("--top-k", type=int, default=None, help="Top-k (must match generation)")
     parser.add_argument("--top-p", type=float, default=None, help="Top-p (must match generation)")
     parser.add_argument("--seed", type=int, default=None, help="Seed (must match generation)")
-    parser.add_argument("--gumbel-sigmas", type=str, default=None, help="Comma-separated sigma values")
-    parser.add_argument("--support-size", type=int, default=None, help="Number of support tokens")
+    parser.add_argument("--gumbel-sigma", type=float, default=None, help="Gaussian noise scale for GLS")
     parser.add_argument("--save-dir", type=str, default=None, help="Output directory")
+
+    # Classification arguments
+    parser.add_argument("--classify", action="store_true", help="Run classification after verification")
+    parser.add_argument("--gls-threshold", type=float, default=None, help="GLS threshold for classification")
+    parser.add_argument("--logit-rank-threshold", type=int, default=None, help="Logit rank threshold for classification")
+
     args = parser.parse_args()
 
-    cfg = VerificationConfig()
+    # Load config from YAML or use defaults
+    if args.config is not None:
+        print(f"Loading configuration from {args.config}")
+        cfg = VerificationConfig.from_yaml(args.config)
+    else:
+        cfg = VerificationConfig()
 
-    # Override config
-    if args.model is not None:
-        cfg.model_name = args.model
-    if args.temperature is not None:
-        cfg.temperature = args.temperature
-    if args.top_k is not None:
-        cfg.top_k = args.top_k
-    if args.top_p is not None:
-        cfg.top_p = args.top_p
-    if args.seed is not None:
-        cfg.seed = args.seed
-    if args.gumbel_sigmas is not None:
-        cfg.gumbel_sigmas = [float(s.strip()) for s in args.gumbel_sigmas.split(',')]
-    if args.support_size is not None:
-        cfg.support_size = args.support_size
+        # Override config with command-line arguments
+        if args.model is not None:
+            cfg.model_name = args.model
+        if args.temperature is not None:
+            cfg.temperature = args.temperature
+        if args.top_k is not None:
+            cfg.top_k = args.top_k
+        if args.top_p is not None:
+            cfg.top_p = args.top_p
+        if args.seed is not None:
+            cfg.seed = args.seed
+        if args.gumbel_sigma is not None:
+            cfg.gumbel_sigma = args.gumbel_sigma
+        if args.gls_threshold is not None:
+            cfg.gls_threshold = args.gls_threshold
+        if args.logit_rank_threshold is not None:
+            cfg.logit_rank_threshold = args.logit_rank_threshold
+        if args.classify:
+            cfg.classify = True
+
+    # Save dir override (applies whether using YAML or CLI args)
     if args.save_dir is not None:
         cfg.save_dir = args.save_dir
-    else:
-        # Use same directory as input
+    elif cfg.save_dir == "verification_results":
+        # Use same directory as input if save_dir is default
         cfg.save_dir = str(Path(args.input).parent)
 
     print("=" * 80)
@@ -354,8 +427,7 @@ def main():
     print(f"Top-k: {cfg.top_k}")
     print(f"Top-p: {cfg.top_p}")
     print(f"Seed: {cfg.seed}")
-    print(f"Gumbel sigmas: {cfg.gumbel_sigmas}")
-    print(f"Support size: {cfg.support_size}")
+    print(f"Gumbel sigma: {cfg.gumbel_sigma}")
     print(f"Save dir: {cfg.save_dir}")
     print("=" * 80)
 
@@ -373,6 +445,32 @@ def main():
     output_file = save_verification_results(results, cfg.save_dir)
 
     print("\nDone! Verification results saved to:", output_file)
+
+    # Classification (optional)
+    if cfg.classify:
+        print("\n" + "=" * 80)
+        print("TOKEN CLASSIFICATION")
+        print("=" * 80)
+        print(f"GLS threshold: {cfg.gls_threshold}")
+        print(f"Logit rank threshold: {cfg.logit_rank_threshold}")
+
+        classification_results = classify_tokens(
+            verification_results=results,
+            gls_threshold=cfg.gls_threshold,
+            logit_rank_threshold=cfg.logit_rank_threshold,
+        )
+
+        total_tokens = len(results)
+        num_safe = classification_results["num_safe"]
+        num_suspicious = classification_results["num_suspicious"]
+        num_dangerous = classification_results["num_dangerous"]
+
+        print(f"\nResults:")
+        print(f"  Total tokens: {total_tokens}")
+        print(f"  Safe tokens: {num_safe} ({num_safe / total_tokens * 100:.2f}%)")
+        print(f"  Suspicious tokens: {num_suspicious} ({num_suspicious / total_tokens * 100:.2f}%)")
+        print(f"  Dangerous tokens: {num_dangerous} ({num_dangerous / total_tokens * 100:.2f}%)")
+        print("=" * 80)
 
 
 if __name__ == "__main__":

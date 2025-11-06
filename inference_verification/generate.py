@@ -25,6 +25,7 @@ import pickle
 from dataclasses import dataclass, field
 import gc
 from datetime import datetime
+import yaml
 
 
 @dataclass
@@ -51,6 +52,22 @@ class GenerationConfig:
 
     # vLLM settings
     gpu_memory_utilization: float = 0.7
+
+    @classmethod
+    def from_yaml(cls, yaml_path: str) -> "GenerationConfig":
+        """Load configuration from YAML file."""
+        with open(yaml_path, 'r') as f:
+            config_dict = yaml.safe_load(f)
+
+        # Extract model and generation_params sections
+        model_config = config_dict.get("model", {})
+        generation_config = config_dict.get("generation_params", {})
+
+        # Merge both sections
+        merged_config = {**model_config, **generation_config}
+
+        # Create config object
+        return cls(**merged_config)
 
 
 def load_prompts(cfg: GenerationConfig) -> list[list[int]]:
@@ -134,6 +151,9 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Generate text using vLLM")
+    parser.add_argument("--config", type=str, default=None, help="Path to YAML config file")
+
+    # Optional overrides (only used if --config is not provided)
     parser.add_argument("--model", type=str, default=None, help="Model name")
     parser.add_argument("--n-prompts", type=int, default=None, help="Number of prompts")
     parser.add_argument("--max-tokens", type=int, default=None, help="Max tokens to generate")
@@ -146,30 +166,39 @@ def main():
     parser.add_argument("--save-dir", type=str, default=None, help="Output directory")
     args = parser.parse_args()
 
-    cfg = GenerationConfig()
+    # Load config from YAML or use defaults
+    if args.config is not None:
+        print(f"Loading configuration from {args.config}")
+        cfg = GenerationConfig.from_yaml(args.config)
+    else:
+        cfg = GenerationConfig()
+
+        # Override config with command-line arguments
+        if args.model is not None:
+            cfg.model_name = args.model
+        if args.n_prompts is not None:
+            cfg.n_prompts = args.n_prompts
+        if args.max_tokens is not None:
+            cfg.max_tokens = args.max_tokens
+        if args.temperature is not None:
+            cfg.temperature = args.temperature
+        if args.top_k is not None:
+            cfg.top_k = args.top_k
+        if args.top_p is not None:
+            cfg.top_p = args.top_p
+        if args.seed is not None:
+            cfg.seed = args.seed
+        if args.gpu_memory_utilization is not None:
+            cfg.gpu_memory_utilization = args.gpu_memory_utilization
+
+    # max_model_len is always a CLI argument (not in config)
     max_model_len = args.max_model_len
 
-    # Override config with command-line arguments
-    if args.model is not None:
-        cfg.model_name = args.model
-    if args.n_prompts is not None:
-        cfg.n_prompts = args.n_prompts
-    if args.max_tokens is not None:
-        cfg.max_tokens = args.max_tokens
-    if args.temperature is not None:
-        cfg.temperature = args.temperature
-    if args.top_k is not None:
-        cfg.top_k = args.top_k
-    if args.top_p is not None:
-        cfg.top_p = args.top_p
-    if args.seed is not None:
-        cfg.seed = args.seed
-    if args.gpu_memory_utilization is not None:
-        cfg.gpu_memory_utilization = args.gpu_memory_utilization
+    # Save dir override (applies whether using YAML or CLI args)
     if args.save_dir is not None:
         cfg.save_dir = args.save_dir
-    else:
-        # Create timestamped directory
+    elif cfg.save_dir == "generated_outputs":
+        # Create timestamped directory if using default
         datestr = datetime.now().strftime("%Y%m%d_%H%M%S")
         cfg.save_dir = f"generated_outputs/{datestr}"
 
