@@ -19,7 +19,34 @@ This repository contains code for inference verification applied to preventing m
 - **Gumbel Max Likelihood Score (GM-LS)** - implemented in the codebase as **Gumbel Likelihood Score (GLS)**
 
 
-## Quick Start
+## Quick Start - Verifying Tokens
+
+**Optional pre-step: Generate tokens**
+```python 
+python inference_verification/generate.py --config demonstration/config_example.yaml 
+```
+
+Verify tokens
+
+```python
+python inference_verification/verify.py 
+      --input generated_outputs/generated_outputs.pkl 
+      --config demonstration/config_example.yaml 
+```
+
+*You can verify 18,500 tokens in 17 seconds!*
+Here is how the output will look:
+```
+Results:
+  Total tokens: 18531
+  Safe tokens: 18518 (99.93%)
+  Suspicious tokens: 13 (0.07%)
+  Dangerous tokens: 0 (0.00%)
+```
+
+![Screenshot of verification process](assets/verify-visualization.png)
+
+## Quick Start (Paper plot generation)
 
 Run the minimal test to verify the installation:
 
@@ -52,8 +79,6 @@ cd scripts
 
 
 ## Citation
-
-
 ```
 @misc{rinberg2025verifyingllminferenceprevent,
       title={Verifying LLM Inference to Prevent Model Weight Exfiltration}, 
