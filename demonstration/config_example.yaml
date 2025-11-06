@@ -14,7 +14,7 @@ model:
 generation_params:
   # Generation settings (for generate.py)
   n_prompts: 100       # Number of prompts to generate
-  max_tokens: 100      # Maximum tokens to generate per prompt
+  max_tokens: 500      # Maximum tokens to generate per prompt
 
   # Dataset settings
   dataset_name: "lmsys/lmsys-chat-1m"  # Dataset for prompts
@@ -34,7 +34,7 @@ verification_params:
   # Classification settings
   classify: true              # Whether to run classification after verification
   gls_threshold: -5.0         # GLS threshold: scores > this are "safe"
-  logit_rank_threshold: 10    # Rank threshold: ranks > this (with low GLS) are "dangerous"
+  logit_rank_threshold: 32    # Rank threshold: ranks > this (with low GLS) are "dangerous"
 
   # Output settings
   save_dir: "verification_results"  # Directory to save results
