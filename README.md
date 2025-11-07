@@ -2,11 +2,18 @@
 
 This repo is associated with [Verifying LLM Inference to Detect Model Weight Exfiltration](https://arxiv.org/abs/2511.02620)
 
-*The world we are hoping for:*
-<img width="1289" height="464" alt="image" src="https://github.com/user-attachments/assets/8dd250aa-e3a0-40a8-8f7a-be23b75d82f9" />
-
-*The world we want to protect against:*
-<img width="1267" height="464" alt="image" src="https://github.com/user-attachments/assets/86e72421-8b6d-4b81-b923-cb0ec9852b66" />
+<table>
+<tr>
+<td width="50%">
+<b>The world we are hoping for:</b><br/>
+<img width="100%" alt="image" src="https://github.com/user-attachments/assets/8dd250aa-e3a0-40a8-8f7a-be23b75d82f9" />
+</td>
+<td width="50%">
+<b>The world we want to protect against:</b><br/>
+<img width="100%" alt="image" src="https://github.com/user-attachments/assets/86e72421-8b6d-4b81-b923-cb0ec9852b66" />
+</td>
+</tr>
+</table>
 
 ## Abstract
 As large AI models become increasingly valuable assets, the risk of model weight exfiltration from inference servers grows accordingly.
@@ -46,7 +53,9 @@ Results:
   Dangerous tokens: 0 (0.00%)
 ```
 
-![Screenshot of verification process](assets/verify-visualization.png)
+*Screenshot of inference verification process (verify.py):*
+
+<img src="assets/verify-visualization.png" alt="Screenshot of inference verification process" width="60%" />
 
 
 ## Quick Start - *I just want to verify those plots that you made!*
