@@ -2,6 +2,12 @@
 
 This repo is associated with [Verifying LLM Inference to Detect Model Weight Exfiltration](https://arxiv.org/abs/2511.02620)
 
+*The world we are hoping for:*
+<img width="1289" height="464" alt="image" src="https://github.com/user-attachments/assets/8dd250aa-e3a0-40a8-8f7a-be23b75d82f9" />
+
+*The world we want to protect against:*
+<img width="1267" height="464" alt="image" src="https://github.com/user-attachments/assets/86e72421-8b6d-4b81-b923-cb0ec9852b66" />
+
 ## Abstract
 As large AI models become increasingly valuable assets, the risk of model weight exfiltration from inference servers grows accordingly.
 An attacker controlling an inference server may exfiltrate model weights by hiding them within ordinary model responses, a strategy known as steganography.
@@ -9,6 +15,10 @@ This work investigates how to **verify** LLM model inference to defend against s
 We formalize model weight exfiltration as a security game, propose a verification framework that can provably mitigate steganographic exfiltration, and specify the trust assumptions associated with our scheme. To enable verification, we characterize valid sources of non-determinism in large language model inference and introduce two practical estimators for them.
 We evaluate our detection framework on several open-weight models ranging from 3B to 30B parameters. On MOE-Qwen-30B, our detector reduces exfiltratable information to <0.5% with false-positive rate of <0.01, corresponding to a >200x slowdown for adversaries.
 Overall, this work further establishes a foundation for defending against model weight exfiltration and demonstrates that strong protection can be achieved with minimal additional cost to inference providers.
+
+*Our scheme:*
+<img width="1582" height="904" alt="image" src="https://github.com/user-attachments/assets/4ce02c5f-07b6-4409-9ef8-1e80cf585504" />
+
 
 
 ## Quick Start - *I just want to verify if my tokens are honestly generated!*
