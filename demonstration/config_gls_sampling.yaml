@@ -1,0 +1,25 @@
+# Configuration for GLS-based Sampling Generation
+# This config demonstrates the new GLS-based token selection method
+
+model:
+  model_name: "meta-llama/Llama-3.1-8B-Instruct"
+  dataset_name: "lmsys/lmsys-chat-1m"
+  max_ctx_len: 512
+
+generation_params:
+  n_prompts: 10
+  max_tokens: 50
+  temperature: 1.0
+  top_k: 50
+  top_p: 0.95
+  seed: 42
+
+gls_sampling:
+  # Number of top probability tokens to evaluate with GLS
+  top_n_candidates: 100
+
+  # Gaussian noise scale for GLS computation
+  gumbel_sigma: 1.0
+
+  # Output directory
+  save_dir: "generated_outputs_gls"
