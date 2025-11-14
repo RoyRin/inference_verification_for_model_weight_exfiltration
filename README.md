@@ -4,7 +4,7 @@ This repo is associated with [Verifying LLM Inference to Detect Model Weight Exf
 
 As large AI models become increasingly valuable assets, the risk of model weight exfiltration from inference servers grows accordingly.
 An attacker controlling an inference server may exfiltrate model weights by hiding them within ordinary model responses, a strategy known as steganography.
-This work investigates how to **verify** LLM model inference to defend against such attacks and, more broadly, to detect anomalous or buggy behavior during inference. To enable verification, we characterize valid sources of non-determinism in large language model inference and introduce two practical estimators for them (GM-LS and IPT-LS).
+This work investigates how to **verify** LLM model inference to defend against such attacks and, more broadly, to detect anomalous or buggy behavior during inference. To enable verification, we characterize valid sources of non-determinism in large language model inference and introduce two practical estimators for them: one for inference that uses the Gumbel-Max Trick (GM-LS) and one for inference that uses Inverse Probability Transform (IPT-LS). This work develops these methods with a concurrent work, Token-DiFR, which has minor implementation differences, but focuses on the method development, rather than the application of these methods. 
 
 <table>
 <tr>
